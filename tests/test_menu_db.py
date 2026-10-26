@@ -1,8 +1,10 @@
 import os
+import sqlite3
 import tempfile
 import types
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -35,9 +37,9 @@ class MenuDbTests(unittest.TestCase):
         old_value = os.environ.get("ADMIN_IDS")
         os.environ["ADMIN_IDS"] = "9001, 9002"
         try:
-            self.assertTrue(Index.is_menu_admin(types.SimpleNamespace(id=9001)))
-            self.assertTrue(Index.is_menu_admin(types.SimpleNamespace(id=9002)))
-            self.assertFalse(Index.is_menu_admin(types.SimpleNamespace(id=1234)))
+            self.assertTrue(Index.is_menu_admin(cast(Any, types.SimpleNamespace(id=9001))))
+            self.assertTrue(Index.is_menu_admin(cast(Any, types.SimpleNamespace(id=9002))))
+            self.assertFalse(Index.is_menu_admin(cast(Any, types.SimpleNamespace(id=1234))))
         finally:
             if old_value is None:
                 os.environ.pop("ADMIN_IDS", None)
@@ -55,7 +57,71 @@ class MenuDbTests(unittest.TestCase):
         self.assertTrue(all(field.inline for field in first_page.fields))
         self.assertEqual(first_page.fields[0].value, "메뉴 1")
         self.assertEqual(second_page.fields[0].value, "메뉴 21")
-        self.assertIn("페이지 1 / 2", first_page.footer.text)
+        self.assertIn("페이지 1 / 2", first_page.footer.text or "")
+
+    def test_random_menu_only_uses_the_selected_category(self):
+        Index.initialize_menu_db()
+        self.assertTrue(Index.add_menu(1, "김치찌개", 101, "일반 음식"))
+        self.assertTrue(Index.add_menu(1, "케이크", 102, "디저트"))
+        self.assertTrue(Index.add_menu(1, "민트초코 라면", 103, "괴랄한 음식"))
+
+        self.assertEqual(Index.get_random_menu(1, "디저트"), ("케이크", 1))
+        self.assertEqual(Index.get_random_menu(1, "괴랄한 음식"), ("민트초코 라면", 1))
+        self.assertEqual(Index.get_random_menu(1), ("김치찌개", 1))
+        self.assertEqual(Index.get_random_menu(1, "없는 분류"), (None, 0))
+
+    def test_initialize_menu_db_migrates_existing_menus_to_regular_food(self):
+        connection = sqlite3.connect(self.db_path)
+        connection.execute(
+            """
+            CREATE TABLE menus (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                owner_id INTEGER NOT NULL DEFAULT 0,
+                menu TEXT NOT NULL,
+                UNIQUE(guild_id, menu)
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO menus (guild_id, owner_id, menu) VALUES (?, ?, ?)",
+            (1, 101, "기존 메뉴"),
+        )
+        connection.commit()
+        connection.close()
+
+        Index.initialize_menu_db()
+
+        self.assertEqual(Index.get_random_menu(1), ("기존 메뉴", 1))
+        self.assertEqual(Index.get_random_menu(1, "디저트"), (None, 0))
+
+
+class MenuCategoryCommandTests(unittest.TestCase):
+    def test_add_and_recommend_commands_expose_all_menu_categories(self):
+        command_categories = (
+            (Index.add_menu_command, Index.MENU_CATEGORIES),
+            (Index.recommend_menu_command, Index.MENU_RECOMMEND_CATEGORIES),
+        )
+        for command, expected_categories in command_categories:
+            with self.subTest(command=command.name):
+                category_option = next(
+                    option for option in command.parameters if option.name == "category"
+                )
+                self.assertEqual(
+                    [choice.value for choice in category_option.choices],
+                    list(expected_categories),
+                )
+
+
+class CommandLoggingTests(unittest.TestCase):
+    def test_command_log_helper_uses_consistent_fields(self):
+        user = types.SimpleNamespace(id=12345, __str__=lambda self: "TestUser")
+
+        with self.assertLogs(Index.logger, level="INFO") as captured:
+            Index.log_command_trigger("테스트", cast(Any, user))
+
+        self.assertIn("CommandTriggered: command=테스트", captured.output[0])
+        self.assertIn("user_id=12345", captured.output[0])
 
 
 class BotRegistrationTests(unittest.TestCase):
@@ -67,6 +133,14 @@ class BotRegistrationTests(unittest.TestCase):
             import asyncio
             asyncio.run(bot.setup_hook())
             self.assertIsNotNone(bot.get_command("티그"))
+            self.assertIsNotNone(bot.get_command("cnst:suro!saveLog"))
+            self.assertIsNotNone(bot.get_command("saveLog"))
+            self.assertIsNotNone(bot.tree.get_command("레벨"))
+            self.assertIsNotNone(bot.tree.get_command("인벤토리"))
+            self.assertIsNotNone(bot.tree.get_command("골디상점"))
+            self.assertIsNotNone(bot.tree.get_command("유저레벨초기화"))
+            self.assertIsNotNone(bot.tree.get_command("레벨초기화"))
+            self.assertIsNotNone(bot.tree.get_command("레벨차감"))
         finally:
             if old_time is not None:
                 os.environ["AUTO_MESSAGE_TIME"] = old_time
