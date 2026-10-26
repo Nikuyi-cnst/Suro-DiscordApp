@@ -1,18 +1,4 @@
-import asyncio
-import hashlib
-import json
-import logging
-import math
-import os
-import random
-import re
-import shutil
-import sqlite3
-import subprocess
-import sys
-import threading
-import time
-import uuid
+import asyncio, hashlib, json, logging, math, os, random, re, shutil, sqlite3, subprocess, sys, threading, time, uuid
 from datetime import date, datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -24,8 +10,8 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 ClientBuild = "OpenBeta-UnderEvaluation"
-ClientVersion = "OB2.0-U.E."
-ClientBuildDate = "KOO20260929203000-20261011000000"
+ClientVersion = "GA2.0-S"
+ClientBuildDate = "KOO20261024124437-%Nan"
 
 Help_Message_KOR = """# 슈로 봇 사용안내 (For Korean)
 -# {mention}
@@ -193,11 +179,11 @@ BOT_ON_MESSAGE = f"""
 ----------------------------------------------------                                                                           
 Wellcome to {BOT_NAME} app log channel!
 
-새 버전 출시! -  [KST]2026년 10월 11일 00시 00분
-OB2.0-U.E. - 버전이 출시되었스빈다.
+새 버전 출시! -  [KST]2026년 x월 x일 x시 x분
+GA2.0-S - 버전이 출시되었스빈다.
 자세한 내용은 '/도움말'을 참고하세요.
 
-다음 업대이트는 GA2.0-S로 예정되어 있습니다.(아마도)
+다음 업대이트는 GA2.1-S로 예정되어 있습니다.(아마도)
 ----------------------------------------------------
 build: {ClientBuild}
 version: {ClientVersion}
@@ -1991,7 +1977,7 @@ class HelpLanguageView(discord.ui.View):
 
 @app_commands.command(
 	name="도움말",
-	description="도움말 언어를 선택해 DM으로 받습니다.",
+	description="원하는 언어로 도움말을 DM으로 받을 수 있어요.",
 )
 async def help_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("도움말", interaction.user)
@@ -2072,7 +2058,7 @@ async def save_log_command(ctx: commands.Context) -> None:
 
 @app_commands.command(
 	name="상태",
-	description="서버 상태를 확인합니다.",
+	description="서버의 상태를 확인할 수 있어요.",
 )
 async def status_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("상태", interaction.user)
@@ -2185,8 +2171,8 @@ def get_nearest_events(events: list[dict[str, str]]) -> list[dict[str, str]]:
 
 
 @app_commands.command(
-	name="메뉴추가",
-	description="분류를 선택해 메뉴를 등록합니다.",
+	name="메뉴추가",# 아 줴줴이야
+	description="카테고리별로 메뉴를 만들 수 있어요.",
 )
 @app_commands.describe(menu="등록할 메뉴 문자열", category="메뉴 분류")
 @app_commands.choices(
@@ -2317,7 +2303,7 @@ class MenuDeleteModal(discord.ui.Modal, title="메뉴 삭제"):
 
 @app_commands.command(
 	name="메뉴삭제",
-	description="등록된 메뉴를 삭제합니다.",
+	description="선택한 메뉴를 완전히 삭제해요. 본인이 등록한것 외에는 삭제, 수정할 수 없어요.",
 )
 async def delete_menu_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("메뉴삭제", interaction.user)
@@ -2359,7 +2345,7 @@ async def delete_menu_command(interaction: discord.Interaction) -> None:
 
 @app_commands.command(
 	name="메뉴초기화",
-	description="서버의 모든 메뉴를 삭제합니다. 관리자 전용.",
+	description="존제하는 모든 메뉴들을 보여줘요.",
 )
 async def reset_menus_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("메뉴초기화", interaction.user)
@@ -2387,7 +2373,7 @@ async def reset_menus_command(interaction: discord.Interaction) -> None:
 
 @app_commands.command(
 	name="메뉴추천",
-	description="선택한 카테고리에서 메뉴를 랜덤으로 추천합니다.",
+	description="원하는 카테고리에서 메뉴를 추천해요.",
 )
 @app_commands.describe(category="추천받을 메뉴 카테고리")
 @app_commands.choices(
@@ -2498,7 +2484,7 @@ async def recommend_menu_command(
 
 @app_commands.command(
 	name="레벨",
-	description="현재 레벨과 다음 레벨까지의 엘리프를 확인합니다.",
+	description="자신의 레벨을 볼 수 있어요.",
 )
 async def level_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("레벨", interaction.user)
@@ -2527,7 +2513,7 @@ async def level_command(interaction: discord.Interaction) -> None:
 
 @app_commands.command(
 	name="랭킹",
-	description="선택한 유형의 서버 랭킹을 확인합니다.",
+	description="원하는 유형의 랭킹을 확인할 수 있어요.",
 )
 @app_commands.describe(type="확인할 랭킹 유형")
 @app_commands.choices(
@@ -2743,7 +2729,7 @@ class QuizView(discord.ui.View):
 			await interaction.response.send_message(
 				"서버에서만 사용할 수 있는 퀴즈입니다.",
 				ephemeral=True,
-			)
+			)	
 			return
 
 		status, hint, balance = await asyncio.to_thread(
@@ -2891,7 +2877,7 @@ async def publish_quiz(
 
 @app_commands.command(
 	name="퀴즈",
-	description="기본 문제나 서버에 출제된 문제를 하나 시작합니다.",
+	description="퀴즈타임!",
 )
 async def start_quiz_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("퀴즈", interaction.user)
@@ -2920,8 +2906,8 @@ async def start_quiz_command(interaction: discord.Interaction) -> None:
 
 
 @app_commands.command(
-	name="문제출제",
-	description="문제, 정답, 힌트를 등록하고 서버에 공개합니다.",
+	name="퀴즈내기",
+	description="문제를 직접 낼 수 있어요.",
 )
 @app_commands.rename(question="문제", answer="정답", hint="힌트")
 @app_commands.describe(
@@ -3097,7 +3083,7 @@ class GoldyShopView(discord.ui.View):
 
 @app_commands.command(
 	name="인벤토리",
-	description="보유 아이템과 엘리프를 확인합니다.",
+	description="인벤토리를 확인해요.",
 )
 async def inventory_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("인벤토리", interaction.user)
@@ -3142,7 +3128,7 @@ async def goldy_shop_command(interaction: discord.Interaction) -> None:
 
 @app_commands.command(
 	name="유저레벨초기화",
-	description="서버 내 특정 유저의 레벨과 엘리프를 초기화합니다.",
+	description="특정 유저의 레벨을 초기화할 수있어요.",
 )
 @app_commands.describe(user="레벨을 초기화할 유저")
 async def reset_user_level_command(
@@ -3173,7 +3159,7 @@ async def reset_user_level_command(
 
 @app_commands.command(
 	name="레벨초기화",
-	description="현재 서버의 모든 유저 레벨 정보를 초기화합니다.",
+	description="모든 유저의 레벨 정보를 초기화 합니다.",
 )
 async def reset_guild_levels_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("레벨초기화", interaction.user)
@@ -3200,7 +3186,7 @@ async def reset_guild_levels_command(interaction: discord.Interaction) -> None:
 
 @app_commands.command(
 	name="레벨차감",
-	description="서버 내 특정 유저의 레벨을 지정한 정수만큼 차감합니다.",
+	description="특정 유저의 레벨 정보를 수정합니다.",
 )
 @app_commands.describe(user="레벨을 차감할 유저", levels="차감할 레벨 수")
 async def subtract_level_command(
@@ -3360,7 +3346,7 @@ async def inquiry_command(
 
 @app_commands.command(
 	name="코믹인포",
-	description="코믹월드 행사정보를 보여줍니다.",
+	description="코믹월드 행사정보를 보여줘요.",
 )
 async def comic_info_command(interaction: discord.Interaction) -> None:
 	log_command_trigger("코믹인포", interaction.user)
@@ -3383,7 +3369,7 @@ async def comic_info_command(interaction: discord.Interaction) -> None:
 
 @app_commands.command(
 	name="코믹스케줄",
-	description="코믹월드 행사 일정을 원하는 개수만큼 보여 줍니다.",
+	description="원하는 만큼 코믹월드 일정을 보여줘요.",
 )
 @app_commands.describe(count="출력할 행사 개수 (1~10)")
 async def comic_schedule_command(
