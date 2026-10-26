@@ -44,6 +44,27 @@ class MenuDbTests(unittest.TestCase):
             else:
                 os.environ["ADMIN_IDS"] = old_value
 
+    def test_menu_list_embed_is_paginated_in_groups_of_twenty(self):
+        menus = [f"메뉴 {index}" for index in range(1, 22)]
+
+        first_page = Index.make_menu_list_embed(menus, page=0)
+        second_page = Index.make_menu_list_embed(menus, page=1)
+
+        self.assertEqual(len(first_page.fields), 20)
+        self.assertEqual(len(second_page.fields), 1)
+        self.assertTrue(all(field.inline for field in first_page.fields))
+        self.assertEqual(first_page.fields[0].value, "메뉴 1")
+        self.assertEqual(second_page.fields[0].value, "메뉴 21")
+        self.assertIn("페이지 1 / 2", first_page.footer.text)
+
+
+class BotRegistrationTests(unittest.TestCase):
+    def test_tig_command_is_registered(self):
+        bot = Index.ComicWorldBot(None)
+        import asyncio
+        asyncio.run(bot.setup_hook())
+        self.assertIsNotNone(bot.get_command("티그"))
+
 
 class StatusHelpersTests(unittest.TestCase):
     def test_parse_ping_latency(self):

@@ -6,8 +6,8 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 ClientBuild = "GA-Stable"
-ClientVersion = "GA1.1-S"
-ClientBuildDate = "KOO260915224924-2609162200"
+ClientVersion = "GA1.2-S"
+ClientBuildDate = "KOO2609162200-20260919052500"
 
 Help_Message_KOR = """# 슈로 봇 사용안내 (For Korean)
 -# {mention}
@@ -79,7 +79,7 @@ COMICWORLD_EMOJI_URL = "https://cdn.discordapp.com/emojis/1549042252322439258.pn
 CACHE_FILE = Path(__file__).with_name(".event_cache.json")
 MENU_DB_FILE = Path(__file__).with_name("menus.db")
 SCHEDULE_COOLDOWN_SECONDS = 600
-COMMAND_GUILD_ID = 1534554345876754595
+MENU_PAGE_SIZE = 20
 schedule_cooldown_until: float | None = None
 
 BOT_NAME = "Suro"
@@ -87,11 +87,11 @@ BOT_ON_MESSAGE = f"""
 ----------------------------------------------------                                                                           
 Wellcome to {BOT_NAME} app log channel!
 
-새 버전 출시! -  [KST]2026년 09월 16일 22시 00분
-GA1.1 - 버전이 정식 출시되었스빈다.
+새 버전 출시! -  [KST]2026년 09월 16일 05시 30분
+GA1.2-S - 버전이 정식 출시되었스빈다.
 자세한 내용은 '/도움말'을 참고하세요.
 
-다음 업대이트는 GA1.2-S로 예정되어 있습니다.(아마도)
+다음 업대이트는 GA1.3-S로 예정되어 있습니다.(아마도)
 ----------------------------------------------------
 build: {ClientBuild}
 version: {ClientVersion}
@@ -198,6 +198,20 @@ def get_menu_entries(guild_id: int) -> list[str]:
 		connection.close()
 
 
+def make_menu_list_embed(menus: list[str], page: int = 0) -> discord.Embed:
+	page_count = max(1, math.ceil(len(menus) / MENU_PAGE_SIZE))
+	page = min(max(page, 0), page_count - 1)
+	start = page * MENU_PAGE_SIZE
+	embed = discord.Embed(
+		title="등록된 메뉴 목록",
+		color=discord.Color.green(),
+	)
+	for index, menu in enumerate(menus[start : start + MENU_PAGE_SIZE], start=start + 1):
+		embed.add_field(name=f"{index}.", value=menu, inline=True)
+	embed.set_footer(text=f"페이지 {page + 1} / {page_count} · 전체 {len(menus)}개")
+	return embed
+
+
 def delete_menu(guild_id: int, menu: str, user_id: int, is_admin: bool = False) -> bool:
 	connection = sqlite3.connect(MENU_DB_FILE)
 	try:
@@ -215,6 +229,51 @@ def delete_menu(guild_id: int, menu: str, user_id: int, is_admin: bool = False) 
 		return cursor.rowcount == 1
 	finally:
 		connection.close()
+
+
+class MenuListView(discord.ui.View):
+	def __init__(self, menus: list[str], requester_id: int) -> None:
+		super().__init__(timeout=120)
+		self.menus = menus
+		self.requester_id = requester_id
+		self.page = 0
+		self.page_count = max(1, math.ceil(len(menus) / MENU_PAGE_SIZE))
+		self._update_buttons()
+
+	def _update_buttons(self) -> None:
+		self.previous_button.disabled = self.page == 0
+		self.next_button.disabled = self.page >= self.page_count - 1
+
+	async def _change_page(self, interaction: discord.Interaction, page: int) -> None:
+		if interaction.user.id != self.requester_id:
+			await interaction.response.send_message(
+				"이 메뉴 목록을 실행한 사용자만 페이지를 넘길 수 있습니다.",
+				ephemeral=True,
+			)
+			return
+
+		self.page = page
+		self._update_buttons()
+		await interaction.response.edit_message(
+			embed=make_menu_list_embed(self.menus, self.page),
+			view=self,
+		)
+
+	@discord.ui.button(label="이전", style=discord.ButtonStyle.secondary)
+	async def previous_button(
+		self,
+		interaction: discord.Interaction,
+		button: discord.ui.Button,
+	) -> None:
+		await self._change_page(interaction, self.page - 1)
+
+	@discord.ui.button(label="다음", style=discord.ButtonStyle.primary)
+	async def next_button(
+		self,
+		interaction: discord.Interaction,
+		button: discord.ui.Button,
+	) -> None:
+		await self._change_page(interaction, self.page + 1)
 
 
 def clear_menus(guild_id: int) -> int:
@@ -243,14 +302,14 @@ def get_random_menu(guild_id: int) -> tuple[str | None, int]:
 
 
 def format_menu_recommendation(menu: str) -> str:
-	if random.random() < 0.02:
+	if random.random() < 0.001:
 		return "# _난 마들렌이야_"
 
 	return random.choice(
 		[
-			f"오늘의 추천 메뉴, **{menu}**을 먹어보세요!",
-			f"오늘 메뉴는 고민할 것도 없이 **{menu}**를 먹어봐요.",
-			f"오늘의 메뉴는 **{menu}** 사와요.",
+			f"오늘의 추천 메뉴, **{menu}**을(를) 먹어보세요!",
+			f"오늘 메뉴는 고민할 것도 없이 **{menu}**을(를) 먹어봐요.",
+			f"오늘의 메뉴는 **{menu}**인거사와요.",
 		]
 	)
 
@@ -715,11 +774,24 @@ async def help_command(interaction: discord.Interaction) -> None:
 		"도움말을 받을 언어를 선택해주세요.",
 		view=HelpLanguageView(interaction.user.id),
 		ephemeral=True,
+		
+	)
+	logger.info(
+		"CommandTriggered: , command:도움말, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),
+
 	)
 
 
 @commands.command(name="버터")
 async def butter_command(ctx: commands.Context) -> None:
+	logger.info(
+			"CommandTriggered: , command:버터, user_id=%s, username=%s",
+			ctx.author.id,
+			str(ctx.author),
+	
+		)
 	message = (
 		"각그랜저다!!!"
 		if ctx.author.id in get_admin_ids()
@@ -727,10 +799,36 @@ async def butter_command(ctx: commands.Context) -> None:
 	)
 	await ctx.send(message)
 
+@commands.command(name="티그")
+async def tig_command(ctx: commands.Context) -> None:
+	logger.info(
+			"CommandTriggered: , command:티그, user_id=%s, username=%s",
+			ctx.author.id,
+			str(ctx.author),
+	
+		)
+	message = random.choice(
+		[
+			"허~졉♡ 이딴게 좋은거야~? 최악♡최저♡ 저질이네♡ 역겨워...♡",
+			"허졉 이딴말을 듣고싶어서 그런 글이나 싸지르고 정말한심하네♡",
+			"허접~ 주제를 알아야지♡ 역겨우니까 말 걸지 마♡",
+			"시끄러워♡ 허접 주제에 울기나 하고...♡",
+			"허접... 이예요오...",
+		]
+	)
+	await ctx.send(message)
+	
+
 
 @commands.command(name="cnstSuro:stop")
 async def stop_command(ctx: commands.Context) -> None:
 	if ctx.author.id not in get_admin_ids():
+		logger.info(
+				"CommandTriggered: , command:회사가 불에 탄다!!!!, user_id=%s, username=%s",
+				ctx.author.id,
+				str(ctx.author),
+		
+			)
 		await ctx.send("# _난 마들렌이야_")
 		return
 	await ctx.bot.close()
@@ -739,7 +837,7 @@ async def stop_command(ctx: commands.Context) -> None:
 @app_commands.command(
 	name="상태",
 	description="Termux 기반 Android 서버 상태를 확인합니다.",
-)# ㅁㄴㅇㄹ
+)
 async def status_command(interaction: discord.Interaction) -> None:
 	interaction_age = max(0.0, time.time() - interaction.created_at.timestamp())
 	logger.info(
@@ -806,6 +904,11 @@ async def status_command(interaction: discord.Interaction) -> None:
 		value=f"{status['storage_used']} / {status['storage_total']} ({status['storage_percent']})",
 		inline=True,
 	)
+	logger.info(
+		"CommandTriggered: , command:상태, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),
+		)
 	embed.set_footer(text="Termux / One UI 8.5 / Android 16")
 	try:
 		await interaction.edit_original_response(content=None, embed=embed)
@@ -849,10 +952,12 @@ def get_nearest_events(events: list[dict[str, str]]) -> list[dict[str, str]]:
 	return events
 
 
+
 @app_commands.command(
 	name="메뉴추가",
 	description="메뉴를 등록합니다.",
 )
+
 @app_commands.describe(menu="등록할 메뉴 문자열")
 async def add_menu_command(
 	interaction: discord.Interaction,
@@ -882,6 +987,12 @@ async def add_menu_command(
 	await asyncio.to_thread(initialize_menu_db)
 	was_added = await asyncio.to_thread(add_menu, interaction.guild_id, menu, interaction.user.id)
 	logger.info(
+					"CommandTriggered: , command:메뉴추가, user_id=%s, username=%s",
+					interaction.user.id,
+					str(interaction.user),
+			
+				)
+	logger.info(
 		"메뉴 등록: guild_id=%s, user_id=%s, username=%s, menu=%s, added=%s",
 		interaction.guild_id,
 		interaction.user.id,
@@ -895,6 +1006,41 @@ async def add_menu_command(
 		else f"`{menu}` 메뉴는 이미 등록되어 있습니다."
 	)
 	await interaction.response.send_message(message, ephemeral=True)
+
+
+@app_commands.command(
+	name="메뉴목록",
+	description="등록된 메뉴를 목록으로 보여줍니다.",
+)
+async def list_menus_command(interaction: discord.Interaction) -> None:
+	if interaction.guild_id is None:
+		await interaction.response.send_message(
+			"서버에서만 사용할 수 있는 명령어입니다.",
+			ephemeral=True,
+		)
+		return
+
+	await asyncio.to_thread(initialize_menu_db)
+	menus = await asyncio.to_thread(get_menu_entries, interaction.guild_id)
+	if not menus:
+		await interaction.response.send_message(
+			"등록된 메뉴가 없습니다. `/메뉴추가`로 메뉴를 먼저 등록해주세요.",
+			ephemeral=True,
+		)
+		return
+	logger.info(
+					"CommandTriggered: , command:메뉴목록, user_id=%s, username=%s",
+					interaction.user.id,
+					str(interaction.user),
+			
+				)
+
+	view = MenuListView(menus, interaction.user.id)
+	await interaction.response.send_message(
+		embed=make_menu_list_embed(menus),
+		view=view,
+		ephemeral=True,
+	)
 
 
 class MenuDeleteModal(discord.ui.Modal, title="메뉴 삭제"):
@@ -956,6 +1102,12 @@ async def delete_menu_command(interaction: discord.Interaction) -> None:
 		)
 		return
 
+	logger.info(
+		"CommandTriggered: , command:메뉴삭제, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),
+		)
+
 	menu_list = "\n".join(f"- {menu}" for menu in menus)
 	view = discord.ui.View(timeout=120)
 
@@ -1001,6 +1153,12 @@ async def reset_menus_command(interaction: discord.Interaction) -> None:
 		f"서버의 등록 메뉴 {removed_count}개를 삭제했습니다.",
 		ephemeral=True,
 	)
+	logger.info(
+					"CommandTriggered: , command:메뉴초기화, user_id=%s, username=%s",
+					interaction.user.id,
+					str(interaction.user),
+			
+				)
 
 
 @app_commands.command(
@@ -1029,6 +1187,11 @@ async def recommend_menu_command(interaction: discord.Interaction) -> None:
 
 	await interaction.response.send_message(
 		format_menu_recommendation(menu),
+	)
+	logger.info(
+		"CommandTriggered: , command:메뉴추천, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),
 	)
 
 
@@ -1064,6 +1227,11 @@ async def inquiry_command(
 			ephemeral=True, 	
 		)
 		return
+	logger.info(
+		"CommandTriggered: , command:문의, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),
+		)
 
 	developer_user_id = 924576483333259294 #nikuyi_aaaa
 	if developer_user_id <= 0:
@@ -1153,6 +1321,11 @@ async def inquiry_command(
 )
 async def comic_info_command(interaction: discord.Interaction) -> None:
 	await interaction.response.defer()
+	logger.info(
+		"CommandTriggered: , command:코믹인포, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),
+		)
 	try:
 		events = await asyncio.to_thread(fetch_events)
 		nearest = get_nearest_events(events)[:1]
@@ -1166,6 +1339,7 @@ async def comic_info_command(interaction: discord.Interaction) -> None:
 			"행사정보를 가져오지 못했습니다. 잠시 후 다시 시도해주세요.",
 			ephemeral=True,
 		)
+	
 
 
 @app_commands.command(
@@ -1217,6 +1391,11 @@ async def comic_schedule_command(
 			)
 		except discord.NotFound:
 			logger.warning("오류 안내 전에 코믹스케줄 상호작용이 만료되었습니다.")
+	logger.info(
+		"CommandTriggered: , command:코믹스케줄, user_id=%s, username=%s",
+		interaction.user.id,
+		str(interaction.user),	
+		)
 
 
 class ComicWorldBot(commands.Bot):
@@ -1226,12 +1405,24 @@ class ComicWorldBot(commands.Bot):
 		super().__init__(command_prefix="!", intents=intents)
 		self.channel_id = channel_id
 		self.login_started_at: float | None = None
+		self.commands_synced = False
 
 	async def sync_commands_with_retry(self, max_retries: int = 3) -> None:
 		for attempt in range(1, max_retries + 1):
 			try:
+				for guild in self.guilds:
+					self.tree.clear_commands(guild=guild)
+					self.tree.copy_global_to(guild=guild)
+					await self.tree.sync(guild=guild)
+					logger.info(
+						"슬래시 명령어를 서버에 동기화했습니다: guild=%s (%s)",
+						guild.name,
+						guild.id,
+					)
+				self.tree.clear_commands(guild=None)
 				await self.tree.sync()
-				logger.info("슬래시 명령어를 전역으로 동기화했습니다.")
+				logger.info("중복을 방지하기 위해 전역 슬래시 명령어를 제거했습니다.")
+				self.commands_synced = True
 				return
 			except discord.Forbidden:
 				logger.error(
@@ -1261,6 +1452,7 @@ class ComicWorldBot(commands.Bot):
 		self.tree.add_command(comic_info_command)
 		self.tree.add_command(comic_schedule_command)
 		self.tree.add_command(add_menu_command)
+		self.tree.add_command(list_menus_command)
 		self.tree.add_command(delete_menu_command)
 		self.tree.add_command(reset_menus_command)
 		self.tree.add_command(recommend_menu_command)
@@ -1268,9 +1460,9 @@ class ComicWorldBot(commands.Bot):
 		self.tree.add_command(inquiry_command)
 		self.tree.add_command(help_command)
 		self.add_command(butter_command)
+		self.add_command(tig_command)
 		self.add_command(stop_command)
 		initialize_menu_db()
-		await self.sync_commands_with_retry()
 		if self.channel_id is not None:
 			self.update_events.start()
 		else:
@@ -1279,6 +1471,8 @@ class ComicWorldBot(commands.Bot):
 	async def on_ready(self) -> None:
 		if self.login_started_at is None:
 			self.login_started_at = time.monotonic()
+		if not self.commands_synced:
+			await self.sync_commands_with_retry()
 		logger.info("로그인 완료: %s", self.user)
 		print(BOT_ON_MESSAGE)
 
