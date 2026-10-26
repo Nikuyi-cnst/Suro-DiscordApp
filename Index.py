@@ -432,6 +432,15 @@ def get_auto_message_times() -> list[tuple[int, int]]:
 	return times
 
 
+def get_auto_message_weekday() -> int:
+	# 0=월요일 ... 6=일요일
+	try:
+		weekday = int(os.getenv("AUTO_MESSAGE_WEEKDAY", "0"))
+	except ValueError:
+		return 0
+	return weekday if 0 <= weekday <= 6 else 0
+
+
 def get_auto_message_time() -> tuple[int, int] | None:
 	times = get_auto_message_times()
 	return times[0] if times else None
@@ -3499,29 +3508,34 @@ class ComicWorldBot(commands.Bot):
 				await asyncio.sleep(attempt * 5)
 
 	async def setup_hook(self) -> None:
-		self.tree.add_command(comic_info_command)
-		self.tree.add_command(comic_schedule_command)
+		#명령어들 - 슬레시
+		self.tree.add_command(goldy_shop_command)
+		self.tree.add_command(help_command)
+		self.tree.add_command(ranking_command)
+		self.tree.add_command(level_command)
+		self.tree.add_command(inquiry_command)
+		self.tree.add_command(status_command)
+
+		self.tree.add_command(inventory_command)
+		self.tree.add_command(submit_quiz_question_command)
+		self.tree.add_command(recommend_menu_command)
 		self.tree.add_command(add_menu_command)
 		self.tree.add_command(list_menus_command)
 		self.tree.add_command(delete_menu_command)
-		self.tree.add_command(reset_menus_command)
-		self.tree.add_command(recommend_menu_command)
-		self.tree.add_command(level_command)
-		self.tree.add_command(ranking_command)
 		self.tree.add_command(start_quiz_command)
-		self.tree.add_command(submit_quiz_question_command)
-		self.tree.add_command(inventory_command)
-		self.tree.add_command(goldy_shop_command)
-		self.tree.add_command(reset_user_level_command)
-		self.tree.add_command(reset_guild_levels_command)
+		self.tree.add_command(comic_schedule_command)
+		self.tree.add_command(comic_info_command)
+		
 		self.tree.add_command(subtract_level_command)
-		self.tree.add_command(status_command)
-		self.tree.add_command(inquiry_command)
-		self.tree.add_command(help_command)
+		self.tree.add_command(reset_user_level_command)
+		self.tree.add_command(reset_menus_command)
+		self.tree.add_command(reset_guild_levels_command)
+		#명령어들 - 일반
 		self.add_command(butter_command)
 		self.add_command(tig_command)
 		self.add_command(stop_command)
 		self.add_command(save_log_command)
+		#명령어들 - 끗
 		self.log_event_loop = asyncio.get_running_loop()
 		self.log_loop_ready.set()
 		root_logger = logging.getLogger()
@@ -3646,8 +3660,12 @@ class ComicWorldBot(commands.Bot):
 			return
 
 		now = datetime.now(KST)
+		if now.weekday() != get_auto_message_weekday():
+			return
+		# 주차마다 설정된 시간을 순서대로 번갈아 사용 (15:00 -> 20:00 -> 15:00 ...)
+		week_index = now.isocalendar()[1] % len(scheduled_times)
 		current_time = (now.hour, now.minute)
-		if current_time not in scheduled_times:
+		if current_time != scheduled_times[week_index]:
 			return
 		message = get_auto_message_text(current_time)
 		if message is None:
