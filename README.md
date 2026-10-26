@@ -1,6 +1,6 @@
 # Suro Discord App
 
-[슈로 봇 위키페이지](https://app.notion.com/p/3e31e98a441d8052b17ff0d257d78537?v=3e31e98a441d80518ebc000cc886c8b5&source=copy_link)에서 봇 관련 안내를 확인할 수 있습니다.
+[슈로 봇 위키페이지](https://app.notion.com/p/3e31e98a441d8052b17ff0d257d78537?v=3e31e98a441d80518ebc000cc886c8b5&source=copy_link)에서 봇 관련 안내를 확인할 수 있어요.
 
 이 리포지토리는 슈로의 코드와 공개 문의를 관리하는 리포지토리입니다.
 
