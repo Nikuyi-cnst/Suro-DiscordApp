@@ -1,5 +1,7 @@
 # Suro Discord App
 
+**[슈로 봇 위키페이지](https://app.notion.com/p/3e31e98a441d8052b17ff0d257d78537?v=3e31e98a441d80518ebc000cc886c8b5&source=copy_link)**에서 봇 관련 안내를 확인할 수 있습니다.
+
 슈로 Discord 봇의 코드와 공개 문의를 관리하는 저장소입니다.
 
 - **개발 중인 버전:** 기본 브랜치의 `GA2.0-S`. 아직 Release로 배포하지 않습니다.
@@ -514,7 +516,7 @@ date: 2026.09.23
 
 ##### 관련 규정 제작
 
-규칙 열기
+[규칙 열기](https://app.notion.com/p/3671e98a441d80e0b037c8203394fd11?source=copy_link)
 
 #### 수정
 
