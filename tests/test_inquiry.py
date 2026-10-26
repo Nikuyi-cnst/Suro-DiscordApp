@@ -229,13 +229,15 @@ class GitHubInquiryTests(unittest.TestCase):
 
 class InquiryCommandTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.dm_channel = SimpleNamespace(send=AsyncMock())
+        self.developer = SimpleNamespace(create_dm=AsyncMock(return_value=self.dm_channel))
         self.interaction = SimpleNamespace(
             user=SimpleNamespace(id=123456789, display_name="공개 표시 이름"),
             guild_id=987654321,
-            guild=SimpleNamespace(name="비공개 서버"),
+            guild=SimpleNamespace(name="비공개 서버", get_channel=Mock(return_value=None)),
             response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
-            client=SimpleNamespace(fetch_user=AsyncMock()),
+            client=SimpleNamespace(fetch_user=AsyncMock(return_value=self.developer), get_channel=Mock(return_value=None)),
         )
 
     async def submit(self, content="문의 내용", attachment=None):
@@ -248,20 +250,30 @@ class InquiryCommandTests(unittest.IsolatedAsyncioTestCase):
         self.interaction.response.defer.assert_awaited_once_with(ephemeral=True)
         self.interaction.response.send_message.assert_not_awaited()
         self.interaction.followup.send.assert_awaited_once_with(
-            f"문의가 GitHub 공개 이슈로 등록되었습니다.\n{github.ISSUES_URL}/42", ephemeral=True,
+            f"GitHub 공개 이슈: 등록되었습니다.\n{github.ISSUES_URL}/42\n\n개발자 전달: DM으로 전송되었습니다.", ephemeral=True,
         )
-        self.interaction.client.fetch_user.assert_not_awaited()
+        self.interaction.client.fetch_user.assert_awaited_once_with(Index.DEVELOPER_USER_ID)
+        call = self.dm_channel.send.await_args
+        self.assertNotIn("file", call.kwargs)
+        embed = call.kwargs["embed"]
+        self.assertEqual(embed.description, "문의 내용")
+        self.assertIn("123456789", embed.fields[0].value)
+        self.assertEqual(embed.fields[1].value, "비공개 서버")
+        self.assertEqual(embed.fields[2].value, "987654321")
 
-    async def test_valid_image_url_is_passed_without_downloading(self):
+    async def test_valid_image_url_is_passed_to_github_and_file_is_sent_to_dm(self):
+        file = Mock(spec=Index.discord.File)
         attachment = SimpleNamespace(
             content_type="image/png",
             url="https://cdn.discordapp.com/attachments/1/2/a.png",
-            to_file=AsyncMock(),
+            to_file=AsyncMock(return_value=file),
         )
         with patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create:
             await self.submit("  내용  ", attachment)
         create.assert_called_once_with("내용", "공개 표시 이름", attachment.url)
-        attachment.to_file.assert_not_awaited()
+        attachment.to_file.assert_awaited_once()
+        self.assertIs(self.dm_channel.send.await_args.kwargs["file"], file)
+        file.close.assert_called_once()
 
     async def test_bad_content_is_rejected_before_defer_or_github(self):
         with patch.object(Index, "create_inquiry_issue") as create:
@@ -287,11 +299,178 @@ class InquiryCommandTests(unittest.IsolatedAsyncioTestCase):
             self.assertLogs(Index.logger, level="WARNING") as logs,
         ):
             await self.submit("민감한 문의")
-        self.interaction.followup.send.assert_awaited_once_with("권한 확인 필요", ephemeral=True)
+        self.interaction.followup.send.assert_awaited_once_with(
+            "GitHub 공개 이슈: 권한 확인 필요\n\n개발자 전달: DM으로 전송되었습니다.", ephemeral=True,
+        )
+        self.dm_channel.send.assert_awaited_once()
         output = "\n".join(logs.output)
         self.assertIn("code=permissions", output)
         self.assertNotIn("민감한 문의", output)
         self.assertNotIn("example-not-a-real-token", output)
+
+    async def test_dm_failure_does_not_skip_github_or_claim_dm_success(self):
+        self.dm_channel.send.side_effect = Index.discord.HTTPException(
+            SimpleNamespace(status=500, reason="failure"), "sensitive error text",
+        )
+        with (
+            patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create,
+            self.assertLogs(Index.logger, level="WARNING") as logs,
+        ):
+            await self.submit()
+        create.assert_called_once()
+        text = self.interaction.followup.send.await_args.args[0]
+        self.assertIn(f"{github.ISSUES_URL}/42", text)
+        self.assertIn("개발자 전달: 전송하지 못했거나", text)
+        self.assertNotIn("sensitive error text", "\n".join(logs.output))
+        self.dm_channel.send.assert_awaited_once()
+
+    async def test_both_failures_are_reported_without_retry(self):
+        self.interaction.client.fetch_user.side_effect = Index.discord.Forbidden(
+            SimpleNamespace(status=403, reason="Forbidden"), "private error",
+        )
+        with (
+            patch.object(Index, "create_inquiry_issue", side_effect=github.InquiryError("configuration", "설정 오류")) as create,
+            self.assertLogs(Index.logger, level="WARNING"),
+        ):
+            await self.submit()
+        create.assert_called_once()
+        self.interaction.client.fetch_user.assert_awaited_once()
+        text = self.interaction.followup.send.await_args.args[0]
+        self.assertIn("GitHub 공개 이슈: 설정 오류", text)
+        self.assertIn("개발자 전달: 전송하지 못했거나", text)
+        self.assertNotIn("등록되었습니다", text)
+
+    async def test_forbidden_dm_falls_back_with_fresh_image_file(self):
+        self.dm_channel.send.side_effect = Index.discord.Forbidden(
+            SimpleNamespace(status=403, reason="Forbidden"), "blocked",
+        )
+        channel = Mock(spec=Index.discord.abc.Messageable)
+        channel.send = AsyncMock()
+        self.interaction.guild.get_channel.return_value = channel
+        first = Mock(spec=Index.discord.File)
+        second = Mock(spec=Index.discord.File)
+        attachment = SimpleNamespace(
+            content_type="image/png",
+            url="https://cdn.discordapp.com/attachments/1/2/a.png",
+            to_file=AsyncMock(side_effect=[first, second]),
+        )
+        with (
+            patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create,
+            patch.object(Index, "get_admin_channel_id", return_value=123),
+        ):
+            await self.submit(attachment=attachment)
+        create.assert_called_once()
+        self.interaction.guild.get_channel.assert_called_once_with(123)
+        self.assertIs(self.dm_channel.send.await_args.kwargs["file"], first)
+        self.assertIs(channel.send.await_args.kwargs["file"], second)
+        first.close.assert_called_once()
+        second.close.assert_called_once()
+        self.assertIn("관리자 채널로 대체 전송", self.interaction.followup.send.await_args.args[0])
+        self.assertEqual(channel.send.await_args.kwargs["embed"].fields[2].value, "987654321")
+
+    async def test_dm_context_can_use_cached_admin_channel_without_attachment(self):
+        self.interaction.guild = None
+        self.interaction.guild_id = None
+        self.developer.create_dm.side_effect = Index.discord.Forbidden(
+            SimpleNamespace(status=403, reason="Forbidden"), "blocked",
+        )
+        channel = Mock(spec=Index.discord.abc.Messageable)
+        channel.send = AsyncMock()
+        self.interaction.client.get_channel.return_value = channel
+        with (
+            patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42"),
+            patch.object(Index, "get_admin_channel_id", return_value=123),
+        ):
+            await self.submit()
+        self.interaction.client.get_channel.assert_called_once_with(123)
+        call = channel.send.await_args
+        self.assertNotIn("file", call.kwargs)
+        self.assertEqual(call.kwargs["embed"].fields[1].value, "DM")
+        self.assertEqual(call.kwargs["embed"].fields[2].value, "DM")
+
+    async def test_forbidden_without_valid_fallback_still_creates_issue(self):
+        for admin_id in (None, 123):
+            with self.subTest(admin_id=admin_id):
+                self.dm_channel.send.side_effect = Index.discord.Forbidden(
+                    SimpleNamespace(status=403, reason="Forbidden"), "blocked",
+                )
+                with (
+                    patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create,
+                    patch.object(Index, "get_admin_channel_id", return_value=admin_id),
+                    self.assertLogs(Index.logger, level="WARNING"),
+                ):
+                    await self.submit()
+                create.assert_called_once()
+                self.assertIn("전송하지 못했거나", self.interaction.followup.send.await_args.args[0])
+
+    async def test_fallback_failure_is_reported_separately_from_issue_success(self):
+        self.dm_channel.send.side_effect = Index.discord.Forbidden(
+            SimpleNamespace(status=403, reason="Forbidden"), "blocked",
+        )
+        channel = Mock(spec=Index.discord.abc.Messageable)
+        channel.send = AsyncMock(side_effect=Index.discord.HTTPException(
+            SimpleNamespace(status=500, reason="failure"), "failed",
+        ))
+        self.interaction.guild.get_channel.return_value = channel
+        with (
+            patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create,
+            patch.object(Index, "get_admin_channel_id", return_value=123),
+            self.assertLogs(Index.logger, level="WARNING"),
+        ):
+            await self.submit()
+        create.assert_called_once()
+        channel.send.assert_awaited_once()
+        self.assertIn("전송하지 못했거나", self.interaction.followup.send.await_args.args[0])
+
+    async def test_attachment_download_failure_does_not_prevent_public_issue(self):
+        attachment = SimpleNamespace(
+            content_type="image/png", url="https://cdn.discordapp.com/attachments/1/2/a.png",
+            to_file=AsyncMock(side_effect=Index.aiohttp.ClientConnectionError("secret")),
+        )
+        with (
+            patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create,
+            self.assertLogs(Index.logger, level="WARNING"),
+        ):
+            await self.submit(attachment=attachment)
+        create.assert_called_once()
+        self.dm_channel.send.assert_not_awaited()
+        self.assertIn("전송하지 못했거나", self.interaction.followup.send.await_args.args[0])
+
+    async def test_dm_timeout_is_bounded_and_does_not_block_github(self):
+        real_wait_for = Index.asyncio.wait_for
+
+        async def short_wait(awaitable, timeout):
+            self.assertEqual(timeout, 60)
+            return await real_wait_for(awaitable, timeout=0.01)
+
+        async def hang(*args, **kwargs):
+            await Index.asyncio.sleep(10)
+
+        self.dm_channel.send.side_effect = hang
+        with (
+            patch.object(Index, "create_inquiry_issue", return_value=f"{github.ISSUES_URL}/42") as create,
+            patch.object(Index.asyncio, "wait_for", side_effect=short_wait),
+            self.assertLogs(Index.logger, level="WARNING"),
+        ):
+            await self.submit()
+        create.assert_called_once()
+        self.assertIn("전송하지 못했거나", self.interaction.followup.send.await_args.args[0])
+
+    async def test_github_wait_does_not_delay_dm_attempt(self):
+        started = Index.asyncio.Event()
+
+        async def send_dm(*args, **kwargs):
+            started.set()
+
+        async def wait_for_dm(*args):
+            await Index.asyncio.wait_for(started.wait(), timeout=1)
+            return f"{github.ISSUES_URL}/42"
+
+        self.dm_channel.send.side_effect = send_dm
+        with patch.object(Index.asyncio, "to_thread", side_effect=wait_for_dm):
+            await self.submit()
+        self.dm_channel.send.assert_awaited_once()
+        self.assertIn(f"{github.ISSUES_URL}/42", self.interaction.followup.send.await_args.args[0])
 
     def test_command_metadata_says_public_and_attachment_is_not_required(self):
         parameters = {parameter.name: parameter for parameter in Index.inquiry_command.parameters}

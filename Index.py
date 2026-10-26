@@ -5,6 +5,7 @@ from pathlib import Path
 
 import discord
 import requests
+import aiohttp
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
@@ -50,6 +51,7 @@ Help_Message_KOR = """# 슈로 봇 사용안내 (For Korean)
 > ### - `/문의`
 > `/문의`는 **피드백, 버그재보, 질문등의 모든것**을 받습니다.
 > 문의 내용과 작성자 표시 이름은 **GitHub 공개 이슈로 등록**됩니다.
+> 개발자 DM으로도 전달하며, DM 차단 시 설정된 관리자 채널로 전달합니다.
 > 이미지는 **선택 사항**이며 첨부하면 이미지 링크도 공개됩니다.
 > __개인정보나 토큰 등 비밀 정보는 내용과 이미지에 넣지 마세요.__
 > ### - `/상태`
@@ -99,6 +101,7 @@ Help_Message_JPN = """# 슈로「シュロ」ボット使用案内 (For Japanese
 > ### - `/문의`
 > `/문의`(お問い合わせ)は**フィードバック、バグ再報、質問などのすべてを受け取ります。
 > 内容と投稿者の表示名は **GitHubの公開Issueに登録**されます。
+> 開発者のDMにも送信し、DMが拒否された場合は設定済みの管理者チャンネルに送信します。
 > 画像の添付は **任意**です。添付すると画像リンクも公開されます。
 > __個人情報やトークンなどの秘密情報を内容や画像に含めないでください。__
 > ### - `/상태`
@@ -3230,9 +3233,51 @@ async def subtract_level_command(
 	)
 
 
+async def send_inquiry_to_developer(
+	interaction: discord.Interaction,
+	message: str,
+	attachment: discord.Attachment | None,
+) -> str:
+	developer = await interaction.client.fetch_user(DEVELOPER_USER_ID)
+	embed = discord.Embed(title="새 문의가 도착했습니다", color=discord.Color.orange(), description=message)
+	embed.add_field(name="보낸 사용자", value=f"{interaction.user} ({interaction.user.id})", inline=False)
+	embed.add_field(name="서버", value=interaction.guild.name if interaction.guild else "DM", inline=False)
+	embed.add_field(name="서버 ID", value=str(interaction.guild_id) if interaction.guild_id is not None else "DM", inline=False)
+
+	async def send(channel: discord.abc.Messageable) -> None:
+		content = f"<@{DEVELOPER_USER_ID}>\n문의가 도착했습니다."
+		if attachment is None:
+			await channel.send(content, embed=embed)
+		else:
+			# A failed Discord send may consume the file; reopen it for the fallback.
+			file = await attachment.to_file()
+			try:
+				await channel.send(content, embed=embed, file=file)
+			finally:
+				file.close()
+
+	try:
+		dm_channel = await developer.create_dm()
+		await send(dm_channel)
+	except discord.Forbidden:
+		admin_channel_id = get_admin_channel_id()
+		if admin_channel_id is None:
+			raise
+		channel = interaction.guild.get_channel(admin_channel_id) if interaction.guild else None
+		if channel is None:
+			channel = interaction.client.get_channel(admin_channel_id)
+		if not isinstance(channel, discord.abc.Messageable):
+			raise
+		await send(channel)
+		logger.info("문의 관리자 채널 대체 전송 완료")
+		return "개발자 전달: 관리자 채널로 대체 전송되었습니다."
+	logger.info("문의 개발자 DM 전송 완료")
+	return "개발자 전달: DM으로 전송되었습니다."
+
+
 @app_commands.command(
 	name="문의",
-	description="문의와 표시 이름을 GitHub 공개 이슈로 등록합니다. 이미지 선택, 개인정보 입력 금지.",
+	description="개발자 DM과 GitHub 공개 이슈로 문의를 전달합니다. 이미지 선택, 개인정보 입력 금지.",
 )
 @app_commands.describe(
 	content="공개할 문의 내용 (1000자 이내, 개인정보·토큰 입력 금지)",
@@ -3264,20 +3309,31 @@ async def inquiry_command(
 		)
 		return
 	await interaction.response.defer(ephemeral=True)
-	try:
-		issue_url = await asyncio.to_thread(
-			create_inquiry_issue,
-			message,
-			interaction.user.display_name,
-			attachment.url if attachment is not None else None,
-		)
-	except InquiryError as error:
-		logger.warning("GitHub 문의 등록 실패: code=%s", error.code)
-		await interaction.followup.send(str(error), ephemeral=True)
-		return
-	logger.info("GitHub 문의 등록 완료: %s", issue_url)
+
+	async def deliver_github() -> str:
+		try:
+			issue_url = await asyncio.to_thread(
+				create_inquiry_issue,
+				message,
+				interaction.user.display_name,
+				attachment.url if attachment is not None else None,
+			)
+		except InquiryError as error:
+			logger.warning("GitHub 문의 등록 실패: code=%s", error.code)
+			return f"GitHub 공개 이슈: {error}"
+		logger.info("GitHub 문의 등록 완료: %s", issue_url)
+		return f"GitHub 공개 이슈: 등록되었습니다.\n{issue_url}"
+
+	async def deliver_private() -> str:
+		try:
+			return await asyncio.wait_for(send_inquiry_to_developer(interaction, message, attachment), timeout=60)
+		except (discord.HTTPException, aiohttp.ClientError, OSError, asyncio.TimeoutError) as error:
+			logger.warning("문의 개발자 전달 실패: type=%s", type(error).__name__)
+			return "개발자 전달: 전송하지 못했거나 결과를 확인하지 못했습니다. DM/관리자 채널 설정을 확인해주세요."
+
+	github_result, developer_result = await asyncio.gather(deliver_github(), deliver_private())
 	await interaction.followup.send(
-		f"문의가 GitHub 공개 이슈로 등록되었습니다.\n{issue_url}",
+		f"{github_result}\n\n{developer_result}",
 		ephemeral=True,
 	)
 

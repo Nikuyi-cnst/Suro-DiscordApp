@@ -1,21 +1,63 @@
-MIT License
+Suro Educational and Reference License 1.0
 
 Copyright (c) 2026 liRInKun
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. Scope
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This license applies to the Suro source code and associated documentation
+distributed with this license (the "Software"), to the extent that the
+copyright holder has authority to license them. Third-party components remain
+subject to their own licenses; this license does not replace those licenses.
+
+2. Limited permission
+
+You may read, copy, study, modify, and execute the Software solely for
+non-commercial learning, teaching, tutorial examples, and reference.
+Execution is permitted only in an isolated educational or test environment,
+not as an operational service.
+
+You may redistribute the original or modified Software solely for those same
+non-commercial educational and reference purposes, provided that you:
+
+- retain the copyright notice and include a complete copy of this license;
+- clearly attribute the original project as "Suro Discord App by liRInKun"
+  and include https://github.com/Nikuyi-cnst/Suro-DiscordApp;
+- clearly identify your modifications, if any; and
+- preserve these conditions for the covered Software and your modifications,
+  without offering recipients broader rights in the covered Software.
+
+3. Prohibited uses
+
+Commercial use is prohibited, including selling, licensing for a fee,
+monetizing, or using the Software as part of a commercial product or service.
+
+Use in a production, live, or operational service is prohibited, whether
+commercial or non-commercial, public or private. This includes operating a
+Discord bot that serves actual users or communities, or incorporating the
+Software into such a service. An educational label does not authorize a
+production or operational deployment.
+
+Any use outside Section 2 requires separate prior written permission from
+the copyright holder. No other rights are granted by this license.
+
+4. Termination
+
+The permissions granted by this license terminate automatically if you fail
+to comply with its conditions. Termination does not affect any obligations
+or liabilities arising before termination.
+
+5. Disclaimer
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, AND NONINFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE
+LAW, THE AUTHORS AND COPYRIGHT HOLDERS ARE NOT LIABLE FOR ANY CLAIM, DAMAGES,
+OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+6. Status and earlier versions
+
+This is a custom, use-restricted license, not a standard SPDX license or an
+OSI-approved open-source license. It does not revoke rights already granted
+for copies previously distributed under another license. In particular,
+earlier copies distributed under the MIT License retain their original
+license terms. This license is not legal advice.
