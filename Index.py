@@ -1,13 +1,13 @@
 import asyncio, hashlib, json, logging, math, os, random, re, shutil, sqlite3, subprocess, time, discord, requests
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 ClientBuild = "GA-Stable"
-ClientVersion = "GA1.2-S"
-ClientBuildDate = "KOO2609162200-20260919052500"
+ClientVersion = "GA1.3-S"
+ClientBuildDate = "KOO2609201000-20260923203000"
 
 Help_Message_KOR = """# 슈로 봇 사용안내 (For Korean)
 -# {mention}
@@ -37,7 +37,7 @@ Help_Message_KOR = """# 슈로 봇 사용안내 (For Korean)
 > `/도움말`은 이 문서를 볼 수 있어요.
 # ✧ ----------≺ **기타 정보** ≻---------- ✧
 > 추가 질문 사항이 있다면, `/문의`를 사용해보세요! 사진은 아무거나 보내도 됩니다.
-> 다음 업데이트(GA1.2-S)에선 무엇이 추가될까요? 원하는 기능이 있다면, `/문의`를 통해서 말씀해보세요.
+> 다음 업데이트(GA1.4-S)에선 무엇이 추가될까요? 원하는 기능이 있다면, `/문의`를 통해서 말씀해보세요.
 -# C-Build: {ClientBuild} / ClientVersion: {ClientVersion} / C-BuildDate: {ClientBuildDate}"""
 
 Help_Message_JPN = """# 슈로「シュロ」ボット使用案内 (For Japanese)
@@ -70,8 +70,17 @@ Help_Message_JPN = """# 슈로「シュロ」ボット使用案内 (For Japanese
 > `/도움말`(ヘルプ)はこの記事を見ることができます。
 # ✧ ----------≺ **その他の情報** ≻---------- ✧
 > さらに質問がある場合は、`/문의`（お問い合わせ）をお試しください！写真は何でも送信できます。
-> 次のアップデート(GA1.2-S)では何が追加されますか？必要な機能がある場合は、`/문의`（お問い合わせ）を通して教えてください。
+> 次のアップデート(GA1.4-S)では何が追加されますか？必要な機能がある場合は、`/문의`（お問い合わせ）を通して教えてください。
 -# C-Build: {ClientBuild} / ClientVersion: {ClientVersion} / C-BuildDate: {ClientBuildDate}"""
+
+Notification_Message1_PM08 = """# <@1548636045615304755> 는 오류신고 기능이 있어요!
+오류가 발생한다면 `/문의`를 통해 오류신고를 해주세요.
+-# _신고하면 포상금(칭찬)줌_
+"""
+
+Notification_Message1_PM03 = """# <@1548636045615304755> 의 /메뉴등록 기능에는 규정이 있어요!
+<@1548636045615304755>의 [위키 페이지](https://app.notion.com/p/3e31e98a441d8052b17ff0d257d78537?v=3e31e98a441d80518ebc000cc886c8b5&source=copy_link)를 확인해주세요.
+규정을 지키지 않거나, 읽지 않아서 생긴 불이익은 이용에 제한이 생겨요."""
 
 BASE_URL = "https://comicw.net"
 EVENTS_URL = f"{BASE_URL}/bbs/ajax.main.php"
@@ -79,19 +88,27 @@ COMICWORLD_EMOJI_URL = "https://cdn.discordapp.com/emojis/1549042252322439258.pn
 CACHE_FILE = Path(__file__).with_name(".event_cache.json")
 MENU_DB_FILE = Path(__file__).with_name("menus.db")
 SCHEDULE_COOLDOWN_SECONDS = 600
+TIG_COOLDOWN_SECONDS = 7200
 MENU_PAGE_SIZE = 20
+KST = timezone(timedelta(hours=9))
+DEFAULT_AUTO_MESSAGE_CHANNEL_IDS = (
+	1549321583384862730,
+	# 1548640303337046138,
+)
 schedule_cooldown_until: float | None = None
+tig_cooldown_until: float | None = None
+last_auto_message_dates: dict[int, date] = {}
 
 BOT_NAME = "Suro"
 BOT_ON_MESSAGE = f"""
 ----------------------------------------------------                                                                           
 Wellcome to {BOT_NAME} app log channel!
 
-새 버전 출시! -  [KST]2026년 09월 16일 05시 30분
-GA1.2-S - 버전이 정식 출시되었스빈다.
+새 버전 출시! -  [KST]2026년 09월 23일 20시 30분
+GA1.3-S - 버전이 정식 출시되었스빈다.
 자세한 내용은 '/도움말'을 참고하세요.
 
-다음 업대이트는 GA1.3-S로 예정되어 있습니다.(아마도)
+다음 업대이트는 GA1.4-S로 예정되어 있습니다.(아마도)
 ----------------------------------------------------
 build: {ClientBuild}
 version: {ClientVersion}
@@ -113,6 +130,69 @@ def required_env(name: str) -> str:
 	if not value:
 		raise RuntimeError(f"환경변수 {name}이(가) 설정되지 않았습니다.")
 	return value
+
+
+def get_auto_message_times() -> list[tuple[int, int]]:
+	value = os.getenv("AUTO_MESSAGE_TIME", "").strip()
+	if not value:
+		return []
+
+	times = []
+	for item in value.split(","):
+		try:
+			hour, minute = (int(part) for part in item.strip().split(":", 1))
+		except (TypeError, ValueError):
+			logger.warning("AUTO_MESSAGE_TIME은 HH:MM 형식이어야 합니다: %s", item)
+			continue
+		if not (0 <= hour <= 23 and 0 <= minute <= 59):
+			logger.warning("AUTO_MESSAGE_TIME이 올바른 시간이 아닙니다: %s", item)
+			continue
+		if (hour, minute) not in times:
+			times.append((hour, minute))
+	return times
+
+
+def get_auto_message_time() -> tuple[int, int] | None:
+	times = get_auto_message_times()
+	return times[0] if times else None
+
+
+def get_auto_message_text(current_time: tuple[int, int]) -> str | None:
+	message_map = os.getenv("AUTO_MESSAGE_TEXTS", "").strip()
+	if message_map:
+		try:
+			payload = json.loads(message_map)
+		except json.JSONDecodeError:
+			logger.warning("AUTO_MESSAGE_TEXTS는 JSON 형식이어야 합니다.")
+			payload = {}
+		if isinstance(payload, dict):
+			key = f"{current_time[0]:02d}:{current_time[1]:02d}"
+			message = payload.get(key)
+			if isinstance(message, str) and message.strip():
+				return message.strip()
+
+	message = os.getenv("AUTO_MESSAGE_TEXT", "").strip()
+	return message or None
+
+
+def get_auto_message_channel_ids() -> list[int]:
+	value = os.getenv("AUTO_MESSAGE_CHANNEL_IDS")
+	if value is None:
+		return list(DEFAULT_AUTO_MESSAGE_CHANNEL_IDS)
+
+	channel_ids = []
+	for item in value.split(","):
+		candidate = item.strip()
+		if not candidate:
+			continue
+		try:
+			channel_id = int(candidate)
+		except ValueError:
+			logger.warning("AUTO_MESSAGE_CHANNEL_IDS에 잘못된 값이 포함되어 있습니다: %s", candidate)
+			continue
+		if channel_id > 0 and channel_id not in channel_ids:
+			channel_ids.append(channel_id)
+	return channel_ids
 
 
 def fetch_events() -> list[dict[str, str]]:
@@ -801,6 +881,17 @@ async def butter_command(ctx: commands.Context) -> None:
 
 @commands.command(name="티그")
 async def tig_command(ctx: commands.Context) -> None:
+	global tig_cooldown_until
+	now = time.monotonic()
+	if tig_cooldown_until is not None:
+		remaining = tig_cooldown_until - now
+		if remaining > 0:
+			remaining_minutes = math.ceil(remaining / 60)
+			await ctx.send(
+				f"이 명령어는 전체 2시간 쿨타임이 있습니다. {remaining_minutes}분 후 다시 시도해주세요."
+			)
+			return
+	tig_cooldown_until = now + TIG_COOLDOWN_SECONDS
 	logger.info(
 			"CommandTriggered: , command:티그, user_id=%s, username=%s",
 			ctx.author.id,
@@ -909,7 +1000,7 @@ async def status_command(interaction: discord.Interaction) -> None:
 		interaction.user.id,
 		str(interaction.user),
 		)
-	embed.set_footer(text="Termux / One UI 8.5 / Android 16")
+	embed.set_footer(text="Powered by Nikuyi")
 	try:
 		await interaction.edit_original_response(content=None, embed=embed)
 	except discord.NotFound:
@@ -1467,6 +1558,17 @@ class ComicWorldBot(commands.Bot):
 			self.update_events.start()
 		else:
 			logger.warning("DISCORD_CHANNEL_ID가 없어 주기 알림을 비활성화합니다.")
+		if (
+			get_auto_message_times()
+			and any(get_auto_message_text(scheduled_time) for scheduled_time in get_auto_message_times())
+			and get_auto_message_channel_ids()
+		):
+			self.send_auto_message.start()
+		else:
+			logger.info(
+				"AUTO_MESSAGE_TIME, AUTO_MESSAGE_TEXTS 또는 AUTO_MESSAGE_CHANNEL_IDS가 없어 "
+				"예약 메시지를 비활성화합니다."
+			)
 
 	async def on_ready(self) -> None:
 		if self.login_started_at is None:
@@ -1513,6 +1615,39 @@ class ComicWorldBot(commands.Bot):
 		except (requests.RequestException, ValueError, KeyError) as error:
 			logger.exception("행사정보를 가져오지 못했습니다: %s", error)
 
+	@tasks.loop(minutes=1)
+	async def send_auto_message(self) -> None:
+		scheduled_times = get_auto_message_times()
+		channel_ids = get_auto_message_channel_ids()
+		if not scheduled_times or not channel_ids:
+			return
+
+		now = datetime.now(KST)
+		current_time = (now.hour, now.minute)
+		if current_time not in scheduled_times:
+			return
+		message = get_auto_message_text(current_time)
+		if message is None:
+			return
+
+		for channel_id in channel_ids:
+			if last_auto_message_dates.get(channel_id) == now.date():
+				continue
+			channel = self.get_channel(channel_id)
+			if not isinstance(channel, discord.abc.Messageable):
+				logger.error("예약 메시지 채널을 찾을 수 없습니다: %s", channel_id)
+				continue
+			try:
+				await channel.send(message)
+				last_auto_message_dates[channel_id] = now.date()
+				logger.info("예약 메시지를 전송했습니다: channel_id=%s, time=%s", channel_id, current_time)
+			except discord.HTTPException as error:
+				logger.exception("예약 메시지 전송 실패: channel_id=%s, error=%s", channel_id, error)
+
+	@send_auto_message.before_loop
+	async def before_send_auto_message(self) -> None:
+		await self.wait_until_ready()
+
 	@update_events.before_loop
 	async def before_update_events(self) -> None:
 		await self.wait_until_ready()
@@ -1528,4 +1663,3 @@ def main() -> None:
 
 if __name__ == "__main__":
 	main()
-

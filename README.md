@@ -16,9 +16,16 @@ pip install -r requirements.txt
 DISCORD_TOKEN=디스코드_봇_토큰
 DISCORD_CHANNEL_ID=전송할_채널_ID
 POLL_MINUTES=30
+AUTO_MESSAGE_TIME=09:00,18:00
+AUTO_MESSAGE_TEXT=예약해서 보낼 메시지
+AUTO_MESSAGE_TEXTS={"09:00":"아침 예약 메시지","18:00":"저녁 예약 메시지"}
+# 여러 채널은 쉼표로 구분합니다. 생략하면 기본 예약 채널 2곳으로 전송됩니다.
+AUTO_MESSAGE_CHANNEL_IDS=1549321583384862730,1548640303337046138
 ```
 
 `DISCORD_CHANNEL_ID`는 Discord 개발자 모드에서 채널을 우클릭해 복사할 수 있습니다. 봇에는 해당 채널의 `View Channel`과 `Send Messages` 권한이 필요합니다.
+
+`AUTO_MESSAGE_TIME`은 한국 표준시(KST) 기준 `HH:MM` 형식의 하루 한 번 전송 시각입니다. `AUTO_MESSAGE_TEXTS`를 사용하면 시간별로 다른 메시지를 보낼 수 있습니다. 예약 메시지는 두 서버의 지정 채널로 각각 전송됩니다. `AUTO_MESSAGE_TEXTS`가 없으면 기존 `AUTO_MESSAGE_TEXT`가 모든 시간에 사용됩니다.
 
 3. 봇을 실행합니다.
 

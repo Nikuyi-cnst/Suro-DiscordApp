@@ -60,13 +60,68 @@ class MenuDbTests(unittest.TestCase):
 
 class BotRegistrationTests(unittest.TestCase):
     def test_tig_command_is_registered(self):
-        bot = Index.ComicWorldBot(None)
-        import asyncio
-        asyncio.run(bot.setup_hook())
-        self.assertIsNotNone(bot.get_command("티그"))
+        old_time = os.environ.pop("AUTO_MESSAGE_TIME", None)
+        old_text = os.environ.pop("AUTO_MESSAGE_TEXT", None)
+        try:
+            bot = Index.ComicWorldBot(None)
+            import asyncio
+            asyncio.run(bot.setup_hook())
+            self.assertIsNotNone(bot.get_command("티그"))
+        finally:
+            if old_time is not None:
+                os.environ["AUTO_MESSAGE_TIME"] = old_time
+            if old_text is not None:
+                os.environ["AUTO_MESSAGE_TEXT"] = old_text
 
 
 class StatusHelpersTests(unittest.TestCase):
+    def test_get_auto_message_time(self):
+        old_value = os.environ.get("AUTO_MESSAGE_TIME")
+        try:
+            os.environ["AUTO_MESSAGE_TIME"] = "09:05"
+            self.assertEqual(Index.get_auto_message_time(), (9, 5))
+            os.environ["AUTO_MESSAGE_TIME"] = "25:00"
+            self.assertIsNone(Index.get_auto_message_time())
+        finally:
+            if old_value is None:
+                os.environ.pop("AUTO_MESSAGE_TIME", None)
+            else:
+                os.environ["AUTO_MESSAGE_TIME"] = old_value
+
+    def test_get_auto_message_times_supports_multiple_times(self):
+        old_value = os.environ.get("AUTO_MESSAGE_TIME")
+        try:
+            os.environ["AUTO_MESSAGE_TIME"] = "19:17, 19:18"
+            self.assertEqual(Index.get_auto_message_times(), [(19, 17), (19, 18)])
+        finally:
+            if old_value is None:
+                os.environ.pop("AUTO_MESSAGE_TIME", None)
+            else:
+                os.environ["AUTO_MESSAGE_TIME"] = old_value
+
+    def test_get_auto_message_text_uses_time_specific_messages(self):
+        old_value = os.environ.get("AUTO_MESSAGE_TEXTS")
+        try:
+            os.environ["AUTO_MESSAGE_TEXTS"] = '{"19:17":"첫 번째", "19:18":"두 번째"}'
+            self.assertEqual(Index.get_auto_message_text((19, 17)), "첫 번째")
+            self.assertEqual(Index.get_auto_message_text((19, 18)), "두 번째")
+        finally:
+            if old_value is None:
+                os.environ.pop("AUTO_MESSAGE_TEXTS", None)
+            else:
+                os.environ["AUTO_MESSAGE_TEXTS"] = old_value
+
+    def test_get_auto_message_channel_ids_uses_both_servers(self):
+        old_value = os.environ.pop("AUTO_MESSAGE_CHANNEL_IDS", None)
+        try:
+            self.assertEqual(
+                Index.get_auto_message_channel_ids(),
+                [1549321583384862730],
+            )
+        finally:
+            if old_value is not None:
+                os.environ["AUTO_MESSAGE_CHANNEL_IDS"] = old_value
+
     def test_parse_ping_latency(self):
         raw = (
             "PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.\n"
