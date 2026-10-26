@@ -8,6 +8,7 @@ import requests
 from discord import app_commands
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
+from github_inquiries import InquiryError, create_inquiry_issue
 
 ClientBuild = "OpenBeta-UnderEvaluation"
 ClientVersion = "GA2.0-S"
@@ -48,15 +49,15 @@ Help_Message_KOR = """# 슈로 봇 사용안내 (For Korean)
 > `/메뉴삭제`는 **본인이 등록한 메뉴를 삭제**할 수 있어요.
 > ### - `/문의`
 > `/문의`는 **피드백, 버그재보, 질문등의 모든것**을 받습니다.
-> _명령어 전송시 개발자에게 즉시 DM이 전송됩니다._
-> 버그재보가 아닌 이상 아무사진을 보내도 됩니다.
-> __버그재보일경우, 해당 메시지를 캡처해서 보내주세요.__
+> 문의 내용과 작성자 표시 이름은 **GitHub 공개 이슈로 등록**됩니다.
+> 이미지는 **선택 사항**이며 첨부하면 이미지 링크도 공개됩니다.
+> __개인정보나 토큰 등 비밀 정보는 내용과 이미지에 넣지 마세요.__
 > ### - `/상태`
 > `/상태`는 말 그대로 봇의 상태를 볼 수 있어요.
 > ### - `/도움말`
 > `/도움말`은 이 문서를 볼 수 있어요.
 # ✧ ----------≺ **기타 정보** ≻---------- ✧
-> 추가 질문 사항이 있다면, `/문의`를 사용해보세요! 사진은 아무거나 보내도 됩니다.
+> 추가 질문 사항이 있다면, `/문의`를 사용해보세요! 문의는 공개되며 사진 첨부는 선택입니다.
 > 다음 업데이트(GA1.4-S)에선 무엇이 추가될까요? 원하는 기능이 있다면, `/문의`를 통해서 말씀해보세요.
 -# C-Build: {ClientBuild} / ClientVersion: {ClientVersion} / C-BuildDate: {ClientBuildDate}"""
 
@@ -97,15 +98,15 @@ Help_Message_JPN = """# 슈로「シュロ」ボット使用案内 (For Japanese
 > `/메뉴삭제`(メニュー削除)は**本人が登録したメニューを削除**できます。
 > ### - `/문의`
 > `/문의`(お問い合わせ)は**フィードバック、バグ再報、質問などのすべてを受け取ります。
-> _命令を送信すると、開発者にすぐにDMが送信されます。_
-> バグジェボではない限り、何の写真も送れます。
-> __エラーが発生した場合は、ボットが送信したメッセージをキャプチャして送信してください。__
+> 内容と投稿者の表示名は **GitHubの公開Issueに登録**されます。
+> 画像の添付は **任意**です。添付すると画像リンクも公開されます。
+> __個人情報やトークンなどの秘密情報を内容や画像に含めないでください。__
 > ### - `/상태`
 > `/상태`(状態)は文字通りボットの状態を見ることができます。
 > ### - `/도움말`
 > `/도움말`(ヘルプ)はこの記事を見ることができます。
 # ✧ ----------≺ **その他の情報** ≻---------- ✧
-> さらに質問がある場合は、`/문의`（お問い合わせ）をお試しください！写真は何でも送信できます。
+> 質問は`/문의`（お問い合わせ）へ！内容は公開され、画像の添付は任意です。
 > 次のアップデート(GA1.4-S)では何が追加されますか？必要な機能がある場合は、`/문의`（お問い合わせ）を通して教えてください。
 -# C-Build: {ClientBuild} / ClientVersion: {ClientVersion} / C-BuildDate: {ClientBuildDate}"""
 
@@ -306,7 +307,7 @@ def choose_activity_id(
 		choices = [activity_id for activity_id in activity_ids if activity_id != 4]
 	return random.choice(choices)
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 
 logging.basicConfig(
 	level=logging.INFO,
@@ -3231,16 +3232,16 @@ async def subtract_level_command(
 
 @app_commands.command(
 	name="문의",
-	description="개발자에게 문의 내용을 전달합니다. 이미지 첨부 필수입니다.",
+	description="문의와 표시 이름을 GitHub 공개 이슈로 등록합니다. 이미지 선택, 개인정보 입력 금지.",
 )
 @app_commands.describe(
-	content="문의 내용을 입력하세요",
-	attachment="오류/화면 자료 이미지 첨부 (필수)",
+	content="공개할 문의 내용 (1000자 이내, 개인정보·토큰 입력 금지)",
+	attachment="오류/화면 자료 이미지 (선택, 첨부한 이미지 링크도 공개됩니다)",
 )
 async def inquiry_command(
 	interaction: discord.Interaction,
 	content: str,
-	attachment: discord.Attachment,
+	attachment: discord.Attachment | None = None,
 ) -> None:
 	log_command_trigger("문의", interaction.user)
 	message = content.strip()
@@ -3256,92 +3257,29 @@ async def inquiry_command(
 			ephemeral=True,
 		)
 		return
-	if attachment is None or not attachment.content_type or not attachment.content_type.startswith("image/"):
+	if attachment is not None and (not attachment.content_type or not attachment.content_type.startswith("image/")):
 		await interaction.response.send_message(
-			"문제 화면 또는 오류 이미지 첨부가 필수입니다. 이미지 파일을 함께 보내주세요.",
+			"첨부는 선택 사항이며 이미지 파일만 첨부할 수 있습니다.",
 			ephemeral=True, 	
 		)
 		return
-	developer_user_id = 924576483333259294 #nikuyi_aaaa
-	if developer_user_id <= 0:
-		await interaction.response.send_message(
-			"관리자 DM 전송 대상이 설정되지 않았습니다. 관리자에게 문의해주세요.",
-			ephemeral=True,
-		)
-		logger.warning("관리자 DM 대상이 설정되지 않아 문의 전송이 실패했습니다.")
-		return
-	logger.info(
-		"문의 접수: user_id=%s, username=%s, guild_id=%s, attachment=%s, size=%s, developer_user_id=%s",
-		interaction.user.id,
-		str(interaction.user),
-		interaction.guild_id,
-		attachment.url,
-		attachment.size,
-		developer_user_id,
-	)
-
+	await interaction.response.defer(ephemeral=True)
 	try:
-		developer = await interaction.client.fetch_user(developer_user_id)
-		embed = discord.Embed(
-			title="새 문의가 도착했습니다",
-			color=discord.Color.orange(),
-			description=message,
+		issue_url = await asyncio.to_thread(
+			create_inquiry_issue,
+			message,
+			interaction.user.display_name,
+			attachment.url if attachment is not None else None,
 		)
-		embed.add_field(
-			name="보낸 사용자",
-			value=f"{interaction.user} ({interaction.user.id})",
-			inline=False,
-		)
-		embed.add_field(
-			name="서버",
-			value=f"{interaction.guild.name if interaction.guild else 'DM'}",
-			inline=False,
-		)
-		embed.add_field(
-			name="서버 ID",
-			value=str(interaction.guild_id) if interaction.guild_id is not None else "DM",
-			inline=False,
-		)
-		file = await attachment.to_file()
-		sent = False
-		mention_text = f"<@{developer_user_id}>"
-		try:
-			dm_channel = await developer.create_dm()
-			await dm_channel.send(f"{mention_text}\n문의가 도착했습니다.", embed=embed, file=file)
-			sent = True
-			logger.info("문의 DM 전송 완료: target_user_id=%s", developer_user_id)
-		except discord.Forbidden:
-			admin_channel_id = get_admin_channel_id()
-			if admin_channel_id is None:
-				raise
-			channel = interaction.guild.get_channel(admin_channel_id) if interaction.guild else None
-			if channel is None:
-				channel = interaction.client.get_channel(admin_channel_id)
-			if not isinstance(channel, discord.abc.Messageable):
-				raise
-			await channel.send(f"{mention_text}\n문의가 도착했습니다.", embed=embed, file=file)
-			logger.warning(
-				"문의 DM이 차단되어 관리자 채널 %s로 대체 전송했습니다. developer_user_id=%s",
-				admin_channel_id,
-				developer_user_id,
-			)
-			sent = True
-		if sent:
-			await interaction.response.send_message(
-				"문의가 관리자에게 전달되었습니다. 화면 자료와 함께 전달되었으며 빠른 시일 내에 답변드리겠습니다.",
-				ephemeral=True,
-			)
-		else:
-			await interaction.response.send_message(
-				"문의 전송 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-				ephemeral=True,
-			)
-	except discord.HTTPException as error:
-		logger.exception("문의 전송 실패: %s", error)
-		await interaction.response.send_message(
-			"개발자와의 DM이 허용되지 않았습니다. 관리자와 같은 서버에 초대되었는지 확인하거나 관리자 채널 설정을 확인해주세요.",
-			ephemeral=True,
-		)
+	except InquiryError as error:
+		logger.warning("GitHub 문의 등록 실패: code=%s", error.code)
+		await interaction.followup.send(str(error), ephemeral=True)
+		return
+	logger.info("GitHub 문의 등록 완료: %s", issue_url)
+	await interaction.followup.send(
+		f"문의가 GitHub 공개 이슈로 등록되었습니다.\n{issue_url}",
+		ephemeral=True,
+	)
 
 
 @app_commands.command(
