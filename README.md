@@ -96,7 +96,7 @@ Starting Date: 26.10.24 | Develoment Period: 26.10.24 ~
 
 26.10.xx. xx:xx
 
-### /Github 리포지토리 추가
+### Github 리포지토리 추가
 
 버전 기록용, 릴리즈 배포용 리포지토리를 새롭게 만들었어요.
 
